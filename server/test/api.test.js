@@ -9,6 +9,7 @@ process.env.SESSION_SECRET = 'unit-session-secret-that-is-long-enough-123456';
 process.env.CLIENT_ORIGINS = 'http://localhost:5173';
 
 const { createApp } = await import('../src/app.js');
+const { employeeSchema } = await import('../src/validation.js');
 const origin = 'http://localhost:5173';
 const employee = (overrides = {}) => ({
   employee_code: 'EMP-001', full_name: 'Aarav Mehta', email: 'aarav@example.com',
@@ -79,6 +80,14 @@ before(async () => {
 });
 after(async () => { await new Promise((resolve) => server.close(resolve)); });
 beforeEach(() => { cookie = undefined; db.fail = false; db.employees = []; });
+
+
+test('salary validation rejects non-finite and out-of-range numeric values', () => {
+  assert.equal(employeeSchema.safeParse(employee({ salary: Number.NaN })).success, false);
+  assert.equal(employeeSchema.safeParse(employee({ salary: Number.POSITIVE_INFINITY })).success, false);
+  assert.equal(employeeSchema.safeParse(employee({ salary: Number.NEGATIVE_INFINITY })).success, false);
+  assert.equal(employeeSchema.safeParse(employee({ salary: 9999999999.99 })).success, true);
+});
 
 test('protects employee data, logs in, regenerates session, and logs out', async () => {
   assert.equal((await request('/api/employees')).response.status, 401);
