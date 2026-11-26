@@ -1,52 +1,90 @@
 # PeopleOS — Employee Management System
 
-Full-stack employee directory built with React + Vite, Express, and PostgreSQL.
+PeopleOS is an employee directory with administrator sign-in, protected employee management, search, filtering, pagination, dashboard metrics, and CSV export.
 
-## Features
-- Administrator login/logout using bcrypt password hashes and PostgreSQL-backed server sessions.
-- Protected employee CRUD API; unique employee code and email.
-- Search, department/status filters, pagination, dashboard metrics.
-- CSV export with spreadsheet formula-injection mitigation.
-- Responsive dashboard, employee form, confirmation dialog, keyboard search shortcut.
-- PostgreSQL schema, indexes, Docker Compose, admin seed and optional sample-data seed.
+## Technology stack
 
-## Requirements
-Node.js 20.19+ or 22.12+, npm 10+, Docker Desktop (or PostgreSQL 14+).
+- React 18 and Vite
+- Node.js 20.19+ or 22.12+, Express 4
+- PostgreSQL 14+ using `pg`
+- PostgreSQL-backed sessions and bcrypt password hashing
+- Docker Compose for a local PostgreSQL instance
 
-## Run locally
-1. Extract the ZIP and open a terminal in this folder.
-2. `npm install`
-3. Copy `.env.example` to `.env` (PowerShell: `Copy-Item .env.example .env`).
-4. `docker compose up -d`
-5. `npm run db:migrate`
-6. `npm run db:seed`
-7. `npm run dev`
-8. Open http://localhost:5173
+## Prerequisites
 
-Demo admin: `admin@peopleos.local` / `ChangeMe123!`. Change `ADMIN_PASSWORD` in `.env` before seeding if desired; never use this default in production.
+Install Node.js and npm, plus Docker Desktop or a PostgreSQL server. The repository uses npm workspaces and the root `package-lock.json`; run installs from the repository root. A clean checkout should run `npm ci`.
 
-Optional sample employee data: `npm run db:seed-sample -w server`.
+## Local development
+
+1. Copy `.env.example` to `.env`, replace the local database password in both `DATABASE_URL` and `POSTGRES_PASSWORD`, and replace the session secret. Generate a session secret with `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`.
+2. Start local PostgreSQL with `docker compose up -d` (or configure `DATABASE_URL` for your local PostgreSQL instance).
+3. Install packages: `npm ci`.
+4. Apply migrations: `npm run db:migrate`.
+5. Set `ADMIN_NAME`, `ADMIN_EMAIL`, and a unique `ADMIN_PASSWORD` of at least 12 characters in `.env`, then run `npm run db:seed`.
+6. Start the frontend and API: `npm run dev`.
+7. Open <http://localhost:5173> and sign in with the admin credentials you configured.
+
+No public or prefilled administrator credentials are provided. The seed command creates an account only when that email is new; it never changes the password of an existing administrator. Optional sample data: `npm run db:seed-sample -w server`.
+
+## Environment variables
+
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `NODE_ENV` | Production | Set to `production` for deployment. |
+| `PORT` | No | API listen port; defaults to `4000`. |
+| `DATABASE_URL` | Yes | PostgreSQL connection URL. Keep it in the hosting secret store. |
+| `DB_SSL` | Production | Set to `true` for TLS PostgreSQL connections. |
+| `SESSION_SECRET` | Yes | Unique random secret with at least 32 characters. |
+| `CLIENT_ORIGINS` | Yes | Comma-separated exact browser origins, with scheme and no path. Production origins must use HTTPS. |
+| `SESSION_SAME_SITE` | No | `lax` by default; use `none` plus HTTPS for truly cross-site frontend/API domains. |
+| `SESSION_MAX_AGE_MS` | No | Session idle lifetime in milliseconds; defaults to 8 hours. |
+| `TRUST_PROXY_HOPS` | Production | Trusted reverse proxy hops; defaults to `1`. Set to match the actual ingress topology. |
+| `ADMIN_NAME` | Seed | Administrator display name. |
+| `ADMIN_EMAIL` | Seed | Administrator email. |
+| `ADMIN_PASSWORD` | Seed; production startup | Explicit password, at least 12 characters in development and 16 in production. Do not use example or placeholder values. |
+| `VITE_API_URL` | No | Frontend API origin without `/api`; leave empty for same-origin deployments. |
+| `API_PROXY_TARGET` | No | Development-only Vite proxy target; defaults to `http://localhost:4000`. |
+
+Frontend build variables are embedded at build time. Do not put secrets in `VITE_*` values.
+
+## PostgreSQL setup and migrations
+
+Docker Compose provides a local-only PostgreSQL instance on port 5432. The sample Compose password is for local development and must not be reused in production. For a local database, the example `DATABASE_URL` and Compose database/user names match.
+
+Run `npm run db:migrate` whenever deploying a release. Migrations run transactionally under a PostgreSQL advisory lock. `schema_migrations` records each applied migration and checksum; applied migration files must not be edited. Add a new numbered SQL file for schema changes. The base migration uses `IF NOT EXISTS` and preserves existing rows.
+
+## Administrator setup
+
+Set the three `ADMIN_*` variables before `npm run db:seed`. Use a password manager to generate a unique password. The seed hashes passwords with bcrypt and preserves an existing account by default. To intentionally rotate the configured administrator password, run `npm run db:seed -w server -- --rotate-password`; review the target `ADMIN_EMAIL` first. This explicit option is useful when upgrading an installation that used the old demo credentials.
 
 ## Commands
-- `npm run dev` — frontend and API
-- `npm run build` — production frontend build
-- `npm run db:migrate` — apply schema
-- `npm run db:seed` — create/update admin
-- `npm run db:seed-sample -w server` — insert demo employees
-- `npm run start` — start API
+
+- `npm ci` — install all workspace dependencies from the lockfile.
+- `npm run dev` — run Vite and Express for local development.
+- `npm run build` — build the frontend for production.
+- `npm test` — run backend route and validation tests.
+- `npm run db:migrate` — apply pending database migrations.
+- `npm run db:seed` — create the configured administrator if it does not exist.
+- `npm run db:seed-sample -w server` — insert optional sample employees.
+- `npm start` — start the Express API.
+
+The frontend static output is `client/dist`. Serve it from a static host or reverse proxy and route `/api` and `/health` to the Express service. For split origins, set `VITE_API_URL` to the HTTPS API origin and list the exact HTTPS frontend origin in `CLIENT_ORIGINS`. Credentialed requests require the configured CORS origin and Origin validation. Cross-site cookies need `SESSION_SAME_SITE=none`, HTTPS, and compatible browser cookie policy.
 
 ## API
-- `GET /health`
-- `POST /api/auth/login`, `GET /api/auth/me`, `POST /api/auth/logout`
-- `GET/POST /api/employees`, `GET/PUT/DELETE /api/employees/:id`
-- `GET /api/dashboard/stats`
 
-Employee list supports `page`, `limit` (max 50), `search`, `department`, and `status`.
+- `GET /health` — API and database health.
+- `POST /api/auth/login`, `GET /api/auth/me`, `POST /api/auth/logout`.
+- `GET/POST /api/employees`, `GET/PUT/DELETE /api/employees/:id`.
+- `GET /api/dashboard/stats`.
 
-## Security and limitations
-Passwords are bcrypt-hashed; session IDs are stored in PostgreSQL; cookies are HttpOnly, SameSite=Lax and Secure in production. Login is rate-limited. Helmet headers, Zod validation, parameterized SQL, unique/check constraints, and server-side access checks are included.
+Employee list accepts `page`, `limit` (maximum 50), `search`, `department`, and `status`. CSV export downloads all records matching the current search and filters, across pages.
 
-This is a local-development foundation, not a security audit or turnkey production deployment. Before production: configure strong secrets and HTTPS, set exact trusted origins, review CSRF protections for your deployment topology, configure backups/monitoring, add automated integration tests, and review employee-data privacy/legal obligations. The app has a single administrator role; no public registration, employee self-service, payroll, attendance, leave workflow, or multi-tenant support. Salary is displayed in INR.
+## Production configuration and deployment prerequisites
 
-## Structure
-`client/` React UI · `server/` Express API · `database/migrations/` SQL schema · `docker-compose.yml` PostgreSQL.
+Before deployment, configure `NODE_ENV=production`, a strong unique `SESSION_SECRET`, `DATABASE_URL`, `DB_SSL=true`, a strong `ADMIN_PASSWORD`, the exact HTTPS `CLIENT_ORIGINS`, and a correct `TRUST_PROXY_HOPS`. Set frontend `VITE_API_URL` at build time for a separate API origin. Apply migrations before starting the web service. Use HTTPS, managed secret storage, database backups and restore checks, monitoring, restricted database network access, and an operational administrator credential rotation process. Do not commit `.env` files.
+
+## Security notes
+
+Sessions are stored in PostgreSQL, use HttpOnly cookies, expire after the configured lifetime, and regenerate on successful login. Logout destroys the session. HTTPS is required for production secure cookies. Write requests require a configured Origin; CORS allows only configured frontend origins. Login attempts are rate-limited. Helmet, input validation, parameterized SQL, uniqueness and check constraints, safe generic server errors, and CSV formula-injection mitigation are enabled.
+
+The app currently has one administrator role and no public registration or multi-tenant access model. Treat employee records as sensitive personal data and configure retention, access, backups, and legal/privacy controls for your organization.
