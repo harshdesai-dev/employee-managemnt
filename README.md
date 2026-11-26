@@ -79,6 +79,18 @@ The frontend static output is `client/dist`. Serve it from a static host or reve
 
 Employee list accepts `page`, `limit` (maximum 50), `search`, `department`, and `status`. CSV export downloads all records matching the current search and filters, across pages.
 
+## Containerized self-hosted deployment
+
+The production Compose stack runs the API and frontend containers and connects to an **external PostgreSQL service with TLS enabled**. It does not expose a bundled production database.
+
+1. Create a managed PostgreSQL database and enable its TLS connection. Keep its connection URL private.
+2. Create a root-level `.env` file with `NODE_ENV=production`, `DATABASE_URL`, `DB_SSL=true`, a unique `SESSION_SECRET` (at least 32 random characters), the public HTTPS `CLIENT_ORIGINS`, `ADMIN_NAME`, a valid `ADMIN_EMAIL`, and a strong `ADMIN_PASSWORD` (at least 16 characters with at least three character classes). Set `TRUST_PROXY_HOPS` to the actual number of trusted reverse-proxy hops; the Compose default is 2 for a host TLS proxy in front of the web container.
+3. Build and start the stack: `docker compose -f docker-compose.production.yml up --build -d`.
+4. Check startup: `docker compose -f docker-compose.production.yml ps` and `docker compose -f docker-compose.production.yml logs migrate seed api web`.
+5. Point your TLS reverse proxy at `127.0.0.1:8080`. Preserve the original `Host`, `X-Forwarded-For`, and `X-Forwarded-Proto` headers. Do not expose the container's port directly without HTTPS.
+
+The migration and idempotent administrator seed jobs run before the API starts. The web container serves the built React app and proxies `/api` and `/health` to the API, keeping the browser session same-origin. Back up PostgreSQL and test restores before using employee data in production. Keep `.env` out of version control.
+
 ## Production configuration and deployment prerequisites
 
 Before deployment, configure `NODE_ENV=production`, a strong unique `SESSION_SECRET`, `DATABASE_URL`, `DB_SSL=true`, a strong `ADMIN_PASSWORD`, the exact HTTPS `CLIENT_ORIGINS`, and a correct `TRUST_PROXY_HOPS`. Set frontend `VITE_API_URL` at build time for a separate API origin. Apply migrations before starting the web service. Use HTTPS, managed secret storage, database backups and restore checks, monitoring, restricted database network access, and an operational administrator credential rotation process. Do not commit `.env` files.
