@@ -65,7 +65,7 @@ export function createApp({ db = pool, settings = env, sessionStore } = {}) {
   app.get('/api/dashboard/stats', auth, asyncRoute(async (req, res) => {
     const totals = await db.query(`SELECT COUNT(*)::int total,COUNT(*) FILTER(WHERE status='Active')::int active,COUNT(*) FILTER(WHERE status='On Leave')::int on_leave,COUNT(*) FILTER(WHERE status='Inactive')::int inactive,COUNT(DISTINCT department)::int departments FROM employees`);
     const departments = await db.query('SELECT department,COUNT(*)::int count FROM employees GROUP BY department ORDER BY count DESC,department');
-    res.json({ ...totals.rows[0], departments: departments.rows });
+    res.json({ ...totals.rows[0], department_breakdown: departments.rows });
   }));
 
   app.get('/api/employees', auth, asyncRoute(async (req, res) => {

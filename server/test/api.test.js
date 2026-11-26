@@ -9,6 +9,7 @@ process.env.SESSION_SECRET = 'unit-session-secret-that-is-long-enough-123456';
 process.env.CLIENT_ORIGINS = 'http://localhost:5173';
 
 const { createApp } = await import('../src/app.js');
+const { employeeSchema } = await import('../src/validation.js');
 const origin = 'http://localhost:5173';
 const employee = (overrides = {}) => ({
   employee_code: 'EMP-001', full_name: 'Aarav Mehta', email: 'aarav@example.com',
@@ -31,8 +32,8 @@ class FakeDb {
   async query(sql, values = []) {
     if (this.fail) { const error = new Error('private database detail'); error.code = 'ECONNREFUSED'; throw error; }
     if (sql.includes('FROM users WHERE email')) return { rows: this.users.filter((user) => user.email === values[0]), rowCount: 1 };
-    if (sql.startsWith('SELECT COUNT(*)::int total,COUNT(*)')) return { rows: [{ total: this.employees.length, active: this.employees.filter((e) => e.status === 'Active').length, on_leave: 0, inactive: 0, departments: 1 }], rowCount: 1 };
-    if (sql.startsWith('SELECT department,COUNT(*)')) return { rows: [], rowCount: 0 };
+    if (sql.startsWith('SELECT COUNT(*)::int total,COUNT(*)')) return { rows: [{ total: this.employees.length, active: this.employees.filter((e) => e.status === 'Active').length, on_leave: this.employees.filter((e) => e.status === 'On Leave').length, inactive: this.employees.filter((e) => e.status === 'Inactive').length, departments: new Set(this.employees.map((e) => e.department)).size }], rowCount: 1 };
+    if (sql.startsWith('SELECT department,COUNT(*)')) { const counts = new Map(); for (const item of this.employees) counts.set(item.department, (counts.get(item.department) || 0) + 1); const rows = [...counts].map(([department, count]) => ({ department, count })).sort((a, b) => b.count - a.count || a.department.localeCompare(b.department)); return { rows, rowCount: rows.length }; }
     if (sql.startsWith('SELECT COUNT(*)::int total FROM employees')) return { rows: [{ total: this.filter(sql, values).length }], rowCount: 1 };
     if (sql.startsWith('SELECT id,employee_code')) {
       if (sql.includes('WHERE id=$1')) { const row = this.employees.find((e) => e.id === values[0]); return { rows: row ? [row] : [], rowCount: row ? 1 : 0 }; }
@@ -80,6 +81,14 @@ before(async () => {
 after(async () => { await new Promise((resolve) => server.close(resolve)); });
 beforeEach(() => { cookie = undefined; db.fail = false; db.employees = []; });
 
+
+test('salary validation rejects non-finite and out-of-range numeric values', () => {
+  assert.equal(employeeSchema.safeParse(employee({ salary: Number.NaN })).success, false);
+  assert.equal(employeeSchema.safeParse(employee({ salary: Number.POSITIVE_INFINITY })).success, false);
+  assert.equal(employeeSchema.safeParse(employee({ salary: Number.NEGATIVE_INFINITY })).success, false);
+  assert.equal(employeeSchema.safeParse(employee({ salary: 9999999999.99 })).success, true);
+});
+
 test('protects employee data, logs in, regenerates session, and logs out', async () => {
   assert.equal((await request('/api/employees')).response.status, 401);
   assert.equal((await request('/api/auth/login', { method: 'POST', body: { email: 'admin@example.test', password: 'wrong' } })).response.status, 401);
@@ -116,6 +125,27 @@ test('validates dates and salary, creates, searches, paginates, updates, and del
   assert.equal((await request('/api/employees/1', { method: 'PUT', body: employee({ status: 'Inactive' }) })).response.status, 200);
   assert.equal((await request('/api/employees/1', { method: 'DELETE' })).response.status, 204);
   assert.equal((await request('/api/employees/1')).response.status, 404);
+});
+
+test('returns a numeric department count and a separate department breakdown', async () => {
+  await request('/api/auth/login', { method: 'POST', body: { email: 'admin@example.test', password: 'correct horse battery staple' } });
+  await request('/api/employees', { method: 'POST', body: employee() });
+  await request('/api/employees', { method: 'POST', body: employee({ employee_code: 'EMP-002', email: 'mira@example.com', full_name: 'Mira Das', department: 'Design', status: 'On Leave' }) });
+  const result = await request('/api/dashboard/stats');
+  assert.equal(result.response.status, 200);
+  assert.equal(result.data.departments, 2);
+  assert.deepEqual(result.data.department_breakdown, [
+    { department: 'Design', count: 1 },
+    { department: 'Engineering', count: 1 },
+  ]);
+  assert.equal(result.data.on_leave, 1);
+});
+
+test('returns an empty department breakdown when there are no employees', async () => {
+  await request('/api/auth/login', { method: 'POST', body: { email: 'admin@example.test', password: 'correct horse battery staple' } });
+  const result = await request('/api/dashboard/stats');
+  assert.equal(result.data.departments, 0);
+  assert.deepEqual(result.data.department_breakdown, []);
 });
 
 test('returns safe server errors when the database fails', async () => {

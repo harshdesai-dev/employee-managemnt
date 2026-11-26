@@ -18,7 +18,7 @@ export const employeeSchema = z.object({
   phone: z.string().trim().min(7).max(30).regex(/^[+()\d\s.-]+$/),
   department: z.string().trim().min(2).max(80), designation: z.string().trim().min(2).max(100),
   salary: z.preprocess((value) => typeof value === 'string' && value.trim() === '' ? Number.NaN : typeof value === 'string' ? Number(value) : value,
-    z.number().finite().min(0).max(9999999999.99))
+    z.number().min(0).max(9999999999.99))
     .refine((value) => Number.isInteger(value * 100), 'Salary can have at most two decimal places.'),
   joining_date: z.string().refine(realDate, 'Joining date must be a real date in YYYY-MM-DD format.'),
   status: z.enum(['Active', 'On Leave', 'Inactive']),
