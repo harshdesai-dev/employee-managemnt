@@ -1,0 +1,70 @@
+x-server-environment: &server-environment
+  NODE_ENV: production
+  PORT: "4000"
+  DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL to your TLS-enabled PostgreSQL URL}
+  DB_SSL: ${DB_SSL:-true}
+  SESSION_SECRET: ${SESSION_SECRET:?Set a unique SESSION_SECRET}
+  CLIENT_ORIGINS: ${CLIENT_ORIGINS:?Set the exact public HTTPS origin}
+  SESSION_SAME_SITE: ${SESSION_SAME_SITE:-lax}
+  SESSION_MAX_AGE_MS: ${SESSION_MAX_AGE_MS:-28800000}
+  TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-2}
+  ADMIN_NAME: ${ADMIN_NAME:-PeopleOS Administrator}
+  ADMIN_EMAIL: ${ADMIN_EMAIL:?Set ADMIN_EMAIL}
+  ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set a strong ADMIN_PASSWORD}
+
+services:
+  migrate:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    command: ["npm", "run", "db:migrate"]
+    environment:
+      <<: *server-environment
+    restart: "no"
+
+  seed:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    command: ["npm", "run", "db:seed"]
+    environment:
+      <<: *server-environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: "no"
+
+  api:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    environment:
+      <<: *server-environment
+    expose:
+      - "4000"
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      start_period: 10s
+      retries: 5
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: client/Dockerfile
+    ports:
+      - "127.0.0.1:8080:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
